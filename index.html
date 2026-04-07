@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PostCraft — Social Media Post Formatter</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>✦</text></svg>">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app">
+        <header class="app-header">
+            <h1>PostCraft <span class="accent">✦</span></h1>
+            <p class="tagline">Unicode text formatting for social media</p>
+        </header>
+
+        <nav class="platform-tabs" role="tablist" aria-label="Social media platform">
+            <button class="tab active" role="tab" aria-selected="true" data-platform="linkedin">
+                <span class="tab-icon">in</span> LinkedIn
+            </button>
+            <button class="tab" role="tab" aria-selected="false" data-platform="instagram">
+                <span class="tab-icon">📷</span> Instagram
+            </button>
+            <button class="tab" role="tab" aria-selected="false" data-platform="twitter">
+                <span class="tab-icon">𝕏</span> Twitter / X
+            </button>
+        </nav>
+
+        <div class="main-layout">
+            <main class="editor-card">
+                <div class="toolbar" role="toolbar" aria-label="Formatting options">
+                    <div class="toolbar-group">
+                        <button class="tool-btn" data-action="bold" data-label="Bold" data-shortcut="B"><strong>B</strong></button>
+                        <button class="tool-btn" data-action="italic" data-label="Italic" data-shortcut="I"><em>I</em></button>
+                        <button class="tool-btn" data-action="bold-italic" data-label="Bold Italic">BI</button>
+                    </div>
+                    <div class="toolbar-sep"></div>
+                    <div class="toolbar-group">
+                        <button class="tool-btn" data-action="underline" data-label="Underline" data-shortcut="U"><span class="underline-label">U</span></button>
+                        <button class="tool-btn" data-action="strikethrough" data-label="Strikethrough" data-shortcut="⇧S"><span class="strike-label">S</span></button>
+                    </div>
+                    <div class="toolbar-sep"></div>
+                    <div class="toolbar-group">
+                        <button class="tool-btn" data-action="bullet-list" data-label="Bullet List" data-shortcut="⇧L">•&thinsp;≡</button>
+                        <button class="tool-btn" data-action="number-list" data-label="Numbered List" data-shortcut="⇧O">1.≡</button>
+                    </div>
+                    <div class="toolbar-sep"></div>
+                    <div class="toolbar-group">
+                        <button class="tool-btn" data-action="monospace" data-label="Monospace" data-shortcut="⇧M">⟨⟩</button>
+                        <button class="tool-btn" data-action="small-caps" data-label="Small Caps">ᴀʙ</button>
+                        <button class="tool-btn" data-action="superscript" data-label="Superscript" data-shortcut="⇧P">X<sup>2</sup></button>
+                    </div>
+                    <div class="toolbar-sep"></div>
+                    <div class="toolbar-group">
+                        <button class="tool-btn" data-action="divider" data-label="Insert Divider" data-shortcut="⇧D">━━</button>
+                        <button class="tool-btn toggle-chars-btn" data-action="toggle-chars" data-label="Special Characters">✦</button>
+                        <button class="tool-btn tool-btn-undo" data-action="undo" data-label="Undo" data-shortcut="Z" disabled>↩</button>
+                        <button class="tool-btn tool-btn-danger" data-action="clear" data-label="Clear Formatting" data-shortcut="⇧X">✕</button>
+                        <button class="tool-btn shortcut-help-btn" data-action="shortcut-help" data-label="Keyboard Shortcuts" data-shortcut="?">⌨</button>
+                    </div>
+                </div>
+
+                <div class="special-chars-panel" id="specialCharsPanel" hidden>
+                    <div class="chars-section" id="charsGrid"></div>
+                </div>
+
+                <textarea
+                    id="editor"
+                    class="editor-textarea"
+                    placeholder="Type or paste your content here…"
+                    spellcheck="true"
+                    aria-label="Post content editor"
+                ></textarea>
+
+                <div class="status-bar">
+                    <div class="char-counter">
+                        <span id="charCount">0</span> / <span id="charLimit">3,000</span> characters
+                        <span class="twitter-weighted-count" id="twitterWeightedCount" hidden>
+                            · <span id="twitterWeightedVal">0</span> weighted
+                        </span>
+                    </div>
+                    <div class="status-actions">
+                        <button class="btn-secondary" id="clearBtn" title="Clear text">Clear</button>
+                        <button class="btn-primary" id="copyBtn" title="Copy to clipboard">
+                            <span class="copy-label">Copy to Clipboard</span>
+                        </button>
+                    </div>
+                </div>
+            </main>
+
+            <aside class="preview-panel">
+                <div class="preview-header">
+                    <h3 class="preview-title">Live Preview</h3>
+                    <span class="preview-platform-badge" id="previewBadge">LinkedIn</span>
+                </div>
+                <div class="preview-body" id="previewBody">
+                    <div class="preview-content" id="previewContent">
+                        <p class="preview-placeholder">Your formatted post will appear here…</p>
+                    </div>
+                </div>
+                <div class="preview-warnings" id="previewWarnings"></div>
+                <div class="preview-footer">
+                    <section class="platform-tips" id="platformTips">
+                        <h4 class="tips-heading">💡 Tips for <span id="tipsPlatform">LinkedIn</span></h4>
+                        <ul class="tips-list" id="tipsList"></ul>
+                    </section>
+                </div>
+            </aside>
+        </div>
+
+        <footer class="app-footer">
+            <p>PostCraft formats text using Unicode characters that work on any platform — no extensions required.</p>
+        </footer>
+    </div>
+
+    <div class="toast" id="toast" aria-live="polite"></div>
+
+    <div class="shortcut-overlay" id="shortcutOverlay" hidden>
+        <div class="shortcut-modal">
+            <div class="shortcut-modal-header">
+                <h3>⌨ Keyboard Shortcuts</h3>
+                <button class="shortcut-close" id="shortcutClose">&times;</button>
+            </div>
+            <div class="shortcut-modal-body">
+                <div class="shortcut-col">
+                    <h4>Text Formatting</h4>
+                    <dl class="shortcut-list">
+                        <div><dt>Ctrl + B</dt><dd>Bold</dd></div>
+                        <div><dt>Ctrl + I</dt><dd>Italic</dd></div>
+                        <div><dt>Ctrl + U</dt><dd>Underline</dd></div>
+                        <div><dt>Ctrl + Shift + S</dt><dd>Strikethrough</dd></div>
+                        <div><dt>Ctrl + Shift + M</dt><dd>Monospace</dd></div>
+                        <div><dt>Ctrl + Shift + P</dt><dd>Superscript</dd></div>
+                    </dl>
+                </div>
+                <div class="shortcut-col">
+                    <h4>Lists &amp; Structure</h4>
+                    <dl class="shortcut-list">
+                        <div><dt>Ctrl + Shift + L</dt><dd>Bullet list</dd></div>
+                        <div><dt>Ctrl + Shift + O</dt><dd>Numbered list</dd></div>
+                        <div><dt>Ctrl + Shift + 8</dt><dd>Bullet list (alt)</dd></div>
+                        <div><dt>Ctrl + Shift + 7</dt><dd>Numbered list (alt)</dd></div>
+                        <div><dt>Ctrl + Shift + D</dt><dd>Insert divider</dd></div>
+                    </dl>
+                </div>
+                <div class="shortcut-col">
+                    <h4>Actions</h4>
+                    <dl class="shortcut-list">
+                        <div><dt>Ctrl + Shift + C</dt><dd>Copy to clipboard</dd></div>
+                        <div><dt>Ctrl + Shift + X</dt><dd>Clear formatting</dd></div>
+                        <div><dt>Ctrl + Z</dt><dd>Undo last action</dd></div>
+                        <div><dt>?</dt><dd>Toggle this panel</dd></div>
+                    </dl>
+                </div>
+            </div>
+            <p class="shortcut-footnote">On macOS, use <kbd>⌘</kbd> instead of <kbd>Ctrl</kbd></p>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
