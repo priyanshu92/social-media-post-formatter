@@ -91,9 +91,15 @@
             <aside class="preview-panel">
                 <div class="preview-header">
                     <h3 class="preview-title">Live Preview</h3>
-                    <span class="preview-platform-badge" id="previewBadge">LinkedIn</span>
+                    <div class="preview-actions">
+                        <div class="preview-mode-toggle" role="group" aria-label="Preview device mode">
+                            <button class="preview-mode-btn active" type="button" data-preview-mode="desktop" aria-pressed="true">Desktop</button>
+                            <button class="preview-mode-btn" type="button" data-preview-mode="mobile" aria-pressed="false">Mobile</button>
+                        </div>
+                        <span class="preview-platform-badge" id="previewBadge">LinkedIn</span>
+                    </div>
                 </div>
-                <div class="preview-body" id="previewBody">
+                <div class="preview-body preview-mode-desktop" id="previewBody">
                     <div class="preview-content" id="previewContent">
                         <p class="preview-placeholder">Your formatted post will appear here…</p>
                     </div>

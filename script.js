@@ -126,6 +126,20 @@
         },
     };
 
+    const INLINE_FORMAT_ACTIONS = new Set([
+        'bold',
+        'italic',
+        'bold-italic',
+        'underline',
+        'strikethrough',
+        'monospace',
+        'small-caps',
+        'superscript',
+    ]);
+
+    const VARIANT_FORMAT_ACTIONS = new Set(['monospace', 'small-caps', 'superscript']);
+    const LIST_FORMAT_ACTIONS = new Set(['bullet-list', 'number-list']);
+
     // =========================================================
     //  Formatting Engine
     // =========================================================
@@ -192,6 +206,16 @@
             if (trimmed) return `${num++}. ${trimmed}`;
             return line;
         }).join('\n');
+    }
+
+    function getLineStart(text, pos) {
+        return text.lastIndexOf('\n', pos - 1) + 1;
+    }
+
+    function getNumberedMarkerForLine(line) {
+        const match = line.match(/^\s*(\d+)\.\s/);
+        if (!match) return null;
+        return Number(match[1]);
     }
 
     // =========================================================
@@ -296,6 +320,15 @@
 
     const app = {
         currentPlatform: 'linkedin',
+        currentPreviewMode: 'desktop',
+        activeFormats: {
+            bold: false,
+            italic: false,
+            underline: false,
+            strikethrough: false,
+            variant: null,
+            list: null,
+        },
         editor: null,
         toastTimer: null,
         undoStack: [],
@@ -305,10 +338,12 @@
             this.editor = document.getElementById('editor');
             this.bindToolbar();
             this.bindPlatformTabs();
+            this.bindPreviewModeControls();
             this.bindStatusBar();
             this.bindKeyboardShortcuts();
             this.buildSpecialCharsPanel();
             this.buildTooltips();
+            this.syncActiveToolButtons();
             this.updatePlatform('linkedin');
             this.updateCharCount();
             this.updatePreview();
@@ -333,7 +368,16 @@
             });
         },
 
+        bindPreviewModeControls() {
+            document.querySelector('.preview-mode-toggle').addEventListener('click', (e) => {
+                const btn = e.target.closest('.preview-mode-btn');
+                if (!btn) return;
+                this.updatePreviewMode(btn.dataset.previewMode);
+            });
+        },
+
         bindStatusBar() {
+            this.editor.addEventListener('beforeinput', (e) => this.handleActiveFormattingInput(e));
             this.editor.addEventListener('input', () => {
                 this.updateCharCount();
                 this.updatePreview();
@@ -434,12 +478,8 @@
             document.getElementById('tipsPlatform').textContent = config.name;
             document.getElementById('previewBadge').textContent = config.name;
 
-            const tipsList = document.getElementById('tipsList');
-            tipsList.innerHTML = config.tips.map(tip => `<li>${tip}</li>`).join('');
-
-            // Update preview body class for platform-specific styling
-            const previewBody = document.getElementById('previewBody');
-            previewBody.className = 'preview-body ' + config.previewClass;
+            document.getElementById('tipsList').innerHTML = config.tips.map(tip => `<li>${tip}</li>`).join('');
+            this.syncPreviewBodyClass();
 
             // Toggle twitter weighted counter
             const twitterCount = document.getElementById('twitterWeightedCount');
@@ -449,6 +489,24 @@
             this.updatePreview();
         },
 
+        updatePreviewMode(mode) {
+            if (!['desktop', 'mobile'].includes(mode)) return;
+
+            this.currentPreviewMode = mode;
+            document.querySelectorAll('.preview-mode-btn').forEach(btn => {
+                const isActive = btn.dataset.previewMode === mode;
+                btn.classList.toggle('active', isActive);
+                btn.setAttribute('aria-pressed', String(isActive));
+            });
+            this.syncPreviewBodyClass();
+        },
+
+        syncPreviewBodyClass() {
+            const config = PLATFORMS[this.currentPlatform];
+            const previewBody = document.getElementById('previewBody');
+            previewBody.className = `preview-body ${config.previewClass} preview-mode-${this.currentPreviewMode}`;
+        },
+
         // ---- Formatting Actions ----
 
         handleFormat(action) {
@@ -456,9 +514,8 @@
             if (action === 'shortcut-help') { this.toggleShortcutHelp(); return; }
             if (action === 'undo') { this.undo(); return; }
 
-            this.pushUndo();
-
             if (action === 'divider') {
+                this.pushUndo();
                 let divider = '━━━━━━━━━━━━━━━';
                 if (this.currentPlatform === 'twitter') {
                     divider = twitterShortenDivider(divider);
@@ -471,6 +528,8 @@
             const { start, end, selected } = this.getSelection();
 
             if (action === 'clear') {
+                this.pushUndo();
+                this.clearActiveFormatting();
                 if (!selected) {
                     this.editor.value = stripToPlain(this.editor.value);
                     this.updateCharCount();
@@ -484,11 +543,17 @@
                 return;
             }
 
+            if (!selected && (INLINE_FORMAT_ACTIONS.has(action) || LIST_FORMAT_ACTIONS.has(action))) {
+                this.toggleActiveFormat(action);
+                return;
+            }
+
             if (!selected) {
                 this.showToast('Select some text first');
                 return;
             }
 
+            this.pushUndo();
             let result;
             switch (action) {
                 case 'bold':
@@ -523,6 +588,189 @@
             this.updatePreview();
         },
 
+        toggleActiveFormat(action) {
+            if (action === 'bold-italic') {
+                const shouldEnable = !(this.activeFormats.bold && this.activeFormats.italic);
+                this.activeFormats.bold = shouldEnable;
+                this.activeFormats.italic = shouldEnable;
+                if (shouldEnable) this.activeFormats.variant = null;
+            } else if (action === 'bold' || action === 'italic') {
+                this.activeFormats[action] = !this.activeFormats[action];
+                if (this.activeFormats[action]) this.activeFormats.variant = null;
+            } else if (VARIANT_FORMAT_ACTIONS.has(action)) {
+                this.activeFormats.variant = this.activeFormats.variant === action ? null : action;
+                if (this.activeFormats.variant) {
+                    this.activeFormats.bold = false;
+                    this.activeFormats.italic = false;
+                }
+            } else if (action === 'underline' || action === 'strikethrough') {
+                this.activeFormats[action] = !this.activeFormats[action];
+            } else if (LIST_FORMAT_ACTIONS.has(action)) {
+                this.toggleListFormat(action);
+                return;
+            }
+
+            this.syncActiveToolButtons();
+            this.editor.focus();
+        },
+
+        toggleListFormat(action) {
+            const isActive = this.activeFormats.list === action;
+            this.activeFormats.list = isActive ? null : action;
+
+            if (!isActive) {
+                this.pushUndo();
+                this.ensureCurrentLineHasListMarker(action);
+                this.updatePreview();
+            }
+
+            this.syncActiveToolButtons();
+            this.editor.focus();
+        },
+
+        ensureCurrentLineHasListMarker(action) {
+            const start = this.editor.selectionStart;
+            const end = this.editor.selectionEnd;
+            const value = this.editor.value;
+            const lineStart = getLineStart(value, start);
+            const linePrefix = value.substring(lineStart, start);
+
+            if (/^\s*(?:[•◦▪▸‣⁃⦿⊙]|\d+\.)\s/.test(linePrefix)) return;
+
+            const marker = action === 'bullet-list'
+                ? '• '
+                : `${this.getNextNumberForCurrentLine(lineStart)}. `;
+            this.editor.value = value.substring(0, lineStart) + marker + value.substring(lineStart);
+            this.editor.selectionStart = start + marker.length;
+            this.editor.selectionEnd = end + marker.length;
+            this.updateCharCount();
+        },
+
+        getNextNumberForCurrentLine(lineStart) {
+            const before = this.editor.value.substring(0, Math.max(0, lineStart - 1)).split('\n').reverse();
+            for (const line of before) {
+                const number = getNumberedMarkerForLine(line);
+                if (number != null) return number + 1;
+            }
+            return 1;
+        },
+
+        clearActiveFormatting() {
+            this.activeFormats = {
+                bold: false,
+                italic: false,
+                underline: false,
+                strikethrough: false,
+                variant: null,
+                list: null,
+            };
+            this.syncActiveToolButtons();
+        },
+
+        syncActiveToolButtons() {
+            document.querySelectorAll('.tool-btn[data-action]').forEach(btn => {
+                const action = btn.dataset.action;
+                const isActive = this.isFormatActive(action);
+                if (INLINE_FORMAT_ACTIONS.has(action) || LIST_FORMAT_ACTIONS.has(action)) {
+                    btn.classList.toggle('active', isActive);
+                    btn.setAttribute('aria-pressed', String(isActive));
+                }
+            });
+        },
+
+        isFormatActive(action) {
+            switch (action) {
+                case 'bold':
+                    return this.activeFormats.bold;
+                case 'italic':
+                    return this.activeFormats.italic;
+                case 'bold-italic':
+                    return this.activeFormats.bold && this.activeFormats.italic;
+                case 'underline':
+                case 'strikethrough':
+                    return this.activeFormats[action];
+                case 'monospace':
+                case 'small-caps':
+                case 'superscript':
+                    return this.activeFormats.variant === action;
+                case 'bullet-list':
+                case 'number-list':
+                    return this.activeFormats.list === action;
+                default:
+                    return false;
+            }
+        },
+
+        hasActiveTextFormatting() {
+            return this.activeFormats.bold
+                || this.activeFormats.italic
+                || this.activeFormats.underline
+                || this.activeFormats.strikethrough
+                || this.activeFormats.variant;
+        },
+
+        formatActiveText(text) {
+            let result = text;
+            const { bold, italic, underline, strikethrough, variant } = this.activeFormats;
+            if (variant) {
+                result = applyCharMap(result, variant);
+            } else if (bold && italic) {
+                result = applyCharMap(result, 'bold-italic');
+            } else if (bold) {
+                result = applyCharMap(result, 'bold');
+            } else if (italic) {
+                result = applyCharMap(result, 'italic');
+            }
+
+            if (underline) result = applyCombining(result, '\u0332');
+            if (strikethrough) result = applyCombining(result, '\u0336');
+            return result;
+        },
+
+        handleActiveFormattingInput(e) {
+            if (e.isComposing) return;
+
+            if ((e.inputType === 'insertLineBreak' || e.inputType === 'insertParagraph') && this.activeFormats.list) {
+                e.preventDefault();
+                this.handleActiveListBreak();
+                return;
+            }
+
+            if (e.inputType !== 'insertText' || !e.data || !this.hasActiveTextFormatting()) return;
+
+            e.preventDefault();
+            this.pushUndo();
+            this.insertAtCursor(this.formatActiveText(e.data));
+            this.updatePreview();
+        },
+
+        handleActiveListBreak() {
+            this.pushUndo();
+            const start = this.editor.selectionStart;
+            const end = this.editor.selectionEnd;
+            const value = this.editor.value;
+            const lineStart = getLineStart(value, start);
+            const currentLinePrefix = value.substring(lineStart, start);
+            const emptyMarkerPattern = /^\s*(?:[•◦▪▸‣⁃⦿⊙]|\d+\.)\s*$/;
+
+            if (emptyMarkerPattern.test(currentLinePrefix)) {
+                this.editor.value = value.substring(0, lineStart) + value.substring(end);
+                this.editor.selectionStart = lineStart;
+                this.editor.selectionEnd = lineStart;
+                this.activeFormats.list = null;
+                this.syncActiveToolButtons();
+                this.updateCharCount();
+                this.updatePreview();
+                return;
+            }
+
+            const marker = this.activeFormats.list === 'bullet-list'
+                ? '• '
+                : `${(getNumberedMarkerForLine(currentLinePrefix) || 0) + 1}. `;
+            this.insertAtCursor('\n' + marker);
+            this.updatePreview();
+        },
+
         // ---- Selection Helpers ----
 
         getSelection() {
@@ -544,8 +792,9 @@
 
         insertAtCursor(text) {
             const start = this.editor.selectionStart;
+            const end = this.editor.selectionEnd;
             const value = this.editor.value;
-            this.editor.value = value.substring(0, start) + text + value.substring(start);
+            this.editor.value = value.substring(0, start) + text + value.substring(end);
             const newPos = start + text.length;
             this.editor.selectionStart = newPos;
             this.editor.selectionEnd = newPos;
