@@ -60,7 +60,18 @@
                     <div class="toolbar-group">
                         <button class="tool-btn" data-action="divider" data-label="Insert Divider" data-shortcut="⇧D">━━</button>
                         <button class="tool-btn toggle-chars-btn" data-action="toggle-chars" data-label="Special Characters">✦</button>
-                        <button class="tool-btn tool-btn-undo" data-action="undo" data-label="Undo" data-shortcut="Z" disabled>↩</button>
+                        <button class="tool-btn tool-btn-history tool-btn-undo" data-action="undo" data-label="Undo" data-shortcut="Z" aria-label="Undo" disabled>
+                            <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                <path d="M9 14 4 9l5-5" />
+                                <path d="M4 9h10.5a5.5 5.5 0 1 1 0 11H11" />
+                            </svg>
+                        </button>
+                        <button class="tool-btn tool-btn-history tool-btn-redo" data-action="redo" data-label="Redo" data-shortcut="⇧Z" aria-label="Redo" disabled>
+                            <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                <path d="m15 14 5-5-5-5" />
+                                <path d="M20 9H9.5a5.5 5.5 0 1 0 0 11H13" />
+                            </svg>
+                        </button>
                         <button class="tool-btn tool-btn-danger" data-action="clear" data-label="Clear Formatting" data-shortcut="⇧X">✕</button>
                         <button class="tool-btn shortcut-help-btn" data-action="shortcut-help" data-label="Keyboard Shortcuts" data-shortcut="?">⌨</button>
                     </div>
@@ -165,6 +176,7 @@
                         <div><dt>Ctrl + Shift + C</dt><dd>Copy to clipboard</dd></div>
                         <div><dt>Ctrl + Shift + X</dt><dd>Clear formatting</dd></div>
                         <div><dt>Ctrl + Z</dt><dd>Undo last action</dd></div>
+                        <div><dt>Ctrl + Shift + Z / Ctrl + Y</dt><dd>Redo last action</dd></div>
                         <div><dt>?</dt><dd>Toggle this panel</dd></div>
                     </dl>
                 </div>

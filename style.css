@@ -235,16 +235,27 @@ body {
 .underline-label { text-decoration: underline; }
 .strike-label { text-decoration: line-through; }
 
-/* ---- Shortcut Help & Undo Buttons ---- */
+/* ---- Shortcut Help & History Buttons ---- */
 .shortcut-help-btn {
     font-size: 1.05rem !important;
     opacity: 0.65;
 }
 .shortcut-help-btn:hover { opacity: 1; }
 
-.tool-btn-undo { font-size: 1rem !important; }
-.tool-btn-undo:disabled { opacity: 0.3; cursor: default; }
-.tool-btn-undo:disabled:hover { background: transparent; border-color: transparent; }
+.tool-btn-history { padding: 0; }
+.tool-btn-history .tool-icon {
+    width: 1.05rem;
+    height: 1.05rem;
+    stroke-width: 2.35;
+}
+.tool-btn-history:disabled {
+    opacity: 0.3;
+    cursor: default;
+}
+.tool-btn-history:disabled:hover {
+    background: transparent;
+    border-color: transparent;
+}
 
 /* ---- Custom Tooltip ---- */
 .tool-btn .btn-tooltip {

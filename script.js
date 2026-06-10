@@ -608,6 +608,7 @@
         editor: null,
         toastTimer: null,
         undoStack: [],
+        redoStack: [],
         maxUndo: 50,
 
         init() {
@@ -676,6 +677,10 @@
             this.editor.addEventListener('beforeinput', (e) => this.handleActiveFormattingInput(e));
             this.editor.addEventListener('paste', (e) => this.handlePaste(e));
             this.editor.addEventListener('input', () => {
+                if (this.redoStack.length > 0) {
+                    this.redoStack = [];
+                    this.updateHistoryBtns();
+                }
                 this.updateCharCount();
                 this.updatePreview();
             });
@@ -725,6 +730,7 @@
                     }
                     if (action === '_redo') {
                         e.preventDefault();
+                        this.handleFormat('redo');
                         return;
                     }
                     if (action) {
@@ -742,6 +748,11 @@
                         e.preventDefault();
                         this.handleFormat('undo');
                     }
+                    return;
+                }
+                if (e.key.toLowerCase() === 'y') {
+                    e.preventDefault();
+                    this.handleFormat('redo');
                     return;
                 }
                 if (action) {
@@ -810,6 +821,7 @@
             if (action === 'toggle-chars') { this.toggleSpecialChars(); return; }
             if (action === 'shortcut-help') { this.toggleShortcutHelp(); return; }
             if (action === 'undo') { this.undo(); return; }
+            if (action === 'redo') { this.redo(); return; }
 
             if (action === 'divider') {
                 this.pushUndo();
@@ -1385,15 +1397,28 @@
 
         // ---- Undo Stack ----
 
-        pushUndo() {
+        captureHistoryState() {
             const { start, end } = this.getSelectionOffsets();
-            this.undoStack.push({
+            return {
                 html: this.editor.innerHTML,
                 selStart: start,
                 selEnd: end,
-            });
+            };
+        },
+
+        pushUndo() {
+            this.undoStack.push(this.captureHistoryState());
             if (this.undoStack.length > this.maxUndo) this.undoStack.shift();
-            this.updateUndoBtn();
+            this.redoStack = [];
+            this.updateHistoryBtns();
+        },
+
+        restoreHistoryState(state) {
+            this.editor.innerHTML = state.html;
+            this.setSelectionOffsets(state.selStart, state.selEnd);
+            this.editor.focus();
+            this.updateCharCount();
+            this.updatePreview();
         },
 
         undo() {
@@ -1401,18 +1426,30 @@
                 this.showToast('Nothing to undo');
                 return;
             }
+            this.redoStack.push(this.captureHistoryState());
+            if (this.redoStack.length > this.maxUndo) this.redoStack.shift();
             const state = this.undoStack.pop();
-            this.editor.innerHTML = state.html;
-            this.setSelectionOffsets(state.selStart, state.selEnd);
-            this.editor.focus();
-            this.updateCharCount();
-            this.updatePreview();
-            this.updateUndoBtn();
+            this.restoreHistoryState(state);
+            this.updateHistoryBtns();
         },
 
-        updateUndoBtn() {
-            const btn = document.querySelector('.tool-btn-undo');
-            if (btn) btn.disabled = this.undoStack.length === 0;
+        redo() {
+            if (this.redoStack.length === 0) {
+                this.showToast('Nothing to redo');
+                return;
+            }
+            this.undoStack.push(this.captureHistoryState());
+            if (this.undoStack.length > this.maxUndo) this.undoStack.shift();
+            const state = this.redoStack.pop();
+            this.restoreHistoryState(state);
+            this.updateHistoryBtns();
+        },
+
+        updateHistoryBtns() {
+            const undoBtn = document.querySelector('.tool-btn-undo');
+            const redoBtn = document.querySelector('.tool-btn-redo');
+            if (undoBtn) undoBtn.disabled = this.undoStack.length === 0;
+            if (redoBtn) redoBtn.disabled = this.redoStack.length === 0;
         },
 
         // ---- Tooltips ----
