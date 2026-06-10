@@ -27,13 +27,9 @@
     }
 
     const CHAR_MAPS = {
-        bold: buildCharMap(0x1D400, 0x1D41A, 0x1D7CE),
-        italic: (() => {
-            const m = buildCharMap(0x1D434, 0x1D44E, null);
-            m['h'] = '\u210E';
-            return m;
-        })(),
-        'bold-italic': buildCharMap(0x1D468, 0x1D482, null),
+        bold: buildCharMap(0x1D5D4, 0x1D5EE, 0x1D7EC),
+        italic: buildCharMap(0x1D608, 0x1D622, null),
+        'bold-italic': buildCharMap(0x1D63C, 0x1D656, 0x1D7EC),
         monospace: buildCharMap(0x1D670, 0x1D68A, 0x1D7F6),
         'small-caps': {
             a: '\u1D00', b: '\u0299', c: '\u1D04', d: '\u1D05', e: '\u1D07',
@@ -59,10 +55,22 @@
         },
     };
 
+    const LEGACY_CHAR_MAPS = {
+        bold: buildCharMap(0x1D400, 0x1D41A, 0x1D7CE),
+        italic: (() => {
+            const m = buildCharMap(0x1D434, 0x1D44E, null);
+            m['h'] = '\u210E';
+            return m;
+        })(),
+        'bold-italic': buildCharMap(0x1D468, 0x1D482, null),
+    };
+
     const REVERSE_MAP = {};
-    for (const [, map] of Object.entries(CHAR_MAPS)) {
-        for (const [plain, styled] of Object.entries(map)) {
-            REVERSE_MAP[styled] = plain;
+    for (const mapSet of [CHAR_MAPS, LEGACY_CHAR_MAPS]) {
+        for (const [, map] of Object.entries(mapSet)) {
+            for (const [plain, styled] of Object.entries(map)) {
+                REVERSE_MAP[styled] = plain;
+            }
         }
     }
 
@@ -91,7 +99,7 @@
             accent: '#0A66C2',
             previewClass: 'linkedin-preview',
             tips: [
-                'Use 𝐛𝐨𝐥𝐝 headings to make long posts scannable.',
+                'Use 𝗯𝗼𝗹𝗱 headings to make long posts scannable.',
                 'Keep paragraphs to 1–3 lines for mobile readability.',
                 'Bullet points (•) work well for listing achievements or tips.',
                 'Unicode formatting is preserved in posts, comments, and articles.',
@@ -218,6 +226,274 @@
         return Number(match[1]);
     }
 
+    function normalizeLinkHref(rawHref) {
+        const trimmed = rawHref.trim();
+        if (!trimmed) return null;
+
+        const href = /^[a-z][a-z\d+.-]*:/i.test(trimmed) ? trimmed : `https://${trimmed}`;
+        try {
+            const url = new URL(href);
+            if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+            return url.href;
+        } catch {
+            return null;
+        }
+    }
+
+    function looksLikeLink(text) {
+        return Boolean(normalizeLinkHref(text));
+    }
+
+    function linkedPlainText(label, href) {
+        const cleanLabel = label.trim();
+        const plainLabel = stripToPlain(cleanLabel);
+        return !plainLabel || plainLabel === href ? href : `${cleanLabel} (${href})`;
+    }
+
+    function serializeEditableNode(node, exportLinks = false) {
+        if (node.nodeType === Node.TEXT_NODE) {
+            return node.nodeValue || '';
+        }
+
+        if (node.nodeType !== Node.ELEMENT_NODE) return '';
+
+        const element = node;
+        const tag = element.tagName.toLowerCase();
+        if (tag === 'br') return '\n';
+        if (tag === 'a') {
+            const label = [...element.childNodes].map(child => serializeEditableNode(child, false)).join('');
+            if (!exportLinks) return label;
+
+            const href = normalizeLinkHref(element.getAttribute('href') || element.dataset.href || '');
+            return href ? linkedPlainText(label, href) : label;
+        }
+
+        const text = [...element.childNodes].map(child => serializeEditableNode(child, exportLinks)).join('');
+        return tag === 'div' || tag === 'p' ? `${text}\n` : text;
+    }
+
+    function serializeEditableContent(root, exportLinks = false) {
+        return [...root.childNodes]
+            .map(node => serializeEditableNode(node, exportLinks))
+            .join('')
+            .replace(/\n$/, '');
+    }
+
+    const INDENT_TEXT = '\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0';
+    const HORIZONTAL_RULE_TEXT = '────────';
+    const BLOCK_ELEMENTS = new Set([
+        'address', 'article', 'aside', 'blockquote', 'div', 'dl', 'fieldset',
+        'figcaption', 'figure', 'footer', 'form', 'h1', 'h2', 'h3', 'h4',
+        'h5', 'h6', 'header', 'hr', 'li', 'main', 'nav', 'ol', 'p', 'pre',
+        'section', 'table', 'ul',
+    ]);
+
+    function formatRichText(text, formats) {
+        let result = text;
+        if (formats.variant) {
+            result = applyCharMap(result, formats.variant);
+        } else if (formats.bold && formats.italic) {
+            result = applyCharMap(result, 'bold-italic');
+        } else if (formats.bold) {
+            result = applyCharMap(result, 'bold');
+        } else if (formats.italic) {
+            result = applyCharMap(result, 'italic');
+        }
+
+        if (formats.underline) result = applyCombining(result, '\u0332');
+        if (formats.strikethrough) result = applyCombining(result, '\u0336');
+        return result;
+    }
+
+    function formatsForElement(element, formats) {
+        const tag = element.tagName.toLowerCase();
+        const next = { ...formats };
+        const style = element.getAttribute('style') || '';
+        const weightMatch = style.match(/font-weight\s*:\s*([^;]+)/i);
+        const textDecoration = style.match(/text-decoration(?:-line)?\s*:\s*([^;]+)/i)?.[1] || '';
+
+        if (tag === 'strong' || tag === 'b' || /^h[1-6]$/.test(tag)) next.bold = true;
+        if (tag === 'em' || tag === 'i') next.italic = true;
+        if (tag === 'u' || /underline/i.test(textDecoration)) next.underline = true;
+        if (tag === 's' || tag === 'strike' || tag === 'del' || /line-through/i.test(textDecoration)) next.strikethrough = true;
+        if (tag === 'code' || tag === 'pre' || /monospace/i.test(style)) next.variant = 'monospace';
+
+        if (weightMatch) {
+            const weight = weightMatch[1].trim().toLowerCase();
+            if (weight === 'bold' || Number.parseInt(weight, 10) >= 600) next.bold = true;
+        }
+        if (/font-style\s*:\s*italic/i.test(style)) next.italic = true;
+
+        return next;
+    }
+
+    function normalizeHtmlText(text) {
+        return text.replace(/[ \t\r\n\f]+/g, ' ');
+    }
+
+    function cleanBlockText(text) {
+        return text
+            .replace(/[ \t]+\n/g, '\n')
+            .replace(/\n[ \t]+/g, '\n')
+            .replace(/^[ \t\r\n\f\v]+|[ \t\r\n\f\v]+$/g, '');
+    }
+
+    function hasBlockChild(element) {
+        return [...element.children].some(child => BLOCK_ELEMENTS.has(child.tagName.toLowerCase()));
+    }
+
+    function renderRichInlineChildren(element, formats) {
+        return [...element.childNodes].map(node => renderRichInlineNode(node, formats)).join('');
+    }
+
+    function renderRichInlineNode(node, formats) {
+        if (node.nodeType === Node.TEXT_NODE) {
+            return formatRichText(normalizeHtmlText(node.nodeValue || ''), formats);
+        }
+
+        if (node.nodeType !== Node.ELEMENT_NODE) return '';
+
+        const element = node;
+        const tag = element.tagName.toLowerCase();
+        if (tag === 'br') return '\n';
+        if (tag === 'img') return element.getAttribute('alt') || '';
+
+        if (BLOCK_ELEMENTS.has(tag)) {
+            return renderRichBlock(element, formats);
+        }
+
+        const nextFormats = formatsForElement(element, formats);
+        let text = renderRichInlineChildren(element, nextFormats);
+
+        if (tag === 'a') {
+            const href = (element.getAttribute('href') || '').trim();
+            const plainText = stripToPlain(text).trim();
+            if (href && plainText && plainText !== href) {
+                text += ` (${href})`;
+            }
+        }
+
+        return text;
+    }
+
+    function renderRichBlocksFromChildren(element, formats) {
+        const blocks = [];
+        let inlineBuffer = '';
+
+        for (const node of element.childNodes) {
+            if (node.nodeType === Node.ELEMENT_NODE && BLOCK_ELEMENTS.has(node.tagName.toLowerCase())) {
+                const inlineText = cleanBlockText(inlineBuffer);
+                if (inlineText) blocks.push(inlineText);
+                inlineBuffer = '';
+
+                const blockText = cleanBlockText(renderRichBlock(node, formats));
+                if (blockText) blocks.push(blockText);
+            } else {
+                inlineBuffer += renderRichInlineNode(node, formats);
+            }
+        }
+
+        const inlineText = cleanBlockText(inlineBuffer);
+        if (inlineText) blocks.push(inlineText);
+        return blocks;
+    }
+
+    function renderRichBlock(element, formats) {
+        const tag = element.tagName.toLowerCase();
+        const nextFormats = formatsForElement(element, formats);
+
+        if (tag === 'hr') return HORIZONTAL_RULE_TEXT;
+        if (tag === 'br') return '\n';
+        if (tag === 'ul' || tag === 'ol') return renderRichList(element, nextFormats, 0);
+        if (tag === 'li') return renderRichListItemLines(element, nextFormats, 0).join('\n');
+        if (tag === 'blockquote') {
+            return renderRichBlocksFromChildren(element, nextFormats)
+                .join('\n\n')
+                .split('\n')
+                .map(line => (line.trim() ? `${INDENT_TEXT}${line}` : ''))
+                .join('\n');
+        }
+        if (tag === 'pre') {
+            return formatRichText(element.textContent || '', { ...nextFormats, variant: 'monospace' }).trimEnd();
+        }
+
+        if (hasBlockChild(element)) {
+            return renderRichBlocksFromChildren(element, nextFormats).join('\n\n');
+        }
+
+        return cleanBlockText(renderRichInlineChildren(element, nextFormats));
+    }
+
+    function renderRichList(listElement, formats, depth) {
+        const ordered = listElement.tagName.toLowerCase() === 'ol';
+        let index = Number.parseInt(listElement.getAttribute('start') || '1', 10);
+        if (!Number.isFinite(index)) index = 1;
+
+        const lines = [];
+        for (const child of listElement.children) {
+            if (child.tagName.toLowerCase() !== 'li') continue;
+
+            const itemLines = renderRichListItemLines(child, formats, depth);
+            const firstLine = itemLines.shift() || '';
+            const indent = INDENT_TEXT.repeat(depth);
+            const marker = ordered ? `${index}. ` : '• ';
+            lines.push(`${indent}${marker}${firstLine}`.trimEnd());
+            lines.push(...itemLines);
+            index += 1;
+        }
+        return lines.join('\n');
+    }
+
+    function renderRichListItemLines(itemElement, formats, depth) {
+        const lines = [];
+        let inlineBuffer = '';
+
+        for (const node of itemElement.childNodes) {
+            if (node.nodeType === Node.ELEMENT_NODE) {
+                const tag = node.tagName.toLowerCase();
+                if (tag === 'ul' || tag === 'ol') {
+                    const inlineText = cleanBlockText(inlineBuffer);
+                    if (inlineText) lines.push(inlineText);
+                    inlineBuffer = '';
+                    lines.push(...renderRichList(node, formats, depth + 1).split('\n').filter(Boolean));
+                    continue;
+                }
+                if (BLOCK_ELEMENTS.has(tag)) {
+                    const inlineText = cleanBlockText(inlineBuffer);
+                    if (inlineText) lines.push(inlineText);
+                    inlineBuffer = '';
+                    const blockText = cleanBlockText(renderRichBlock(node, formats));
+                    if (blockText) lines.push(...blockText.split('\n'));
+                    continue;
+                }
+            }
+
+            inlineBuffer += renderRichInlineNode(node, formats);
+        }
+
+        const inlineText = cleanBlockText(inlineBuffer);
+        if (inlineText) lines.push(inlineText);
+        return lines.length ? lines : [''];
+    }
+
+    function richHtmlToFormattedText(html) {
+        if (!html || !/<[a-z][\s\S]*>/i.test(html)) return '';
+
+        const parsed = new DOMParser().parseFromString(html, 'text/html');
+        parsed.body.querySelectorAll('script, style, noscript, meta, link, svg').forEach(node => node.remove());
+
+        return renderRichBlocksFromChildren(parsed.body, {
+            bold: false,
+            italic: false,
+            underline: false,
+            strikethrough: false,
+            variant: null,
+        })
+            .join('\n\n')
+            .replace(/\n{3,}/g, '\n\n')
+            .trim();
+    }
+
     // =========================================================
     //  Platform-Specific Processing
     // =========================================================
@@ -341,6 +617,7 @@
             this.bindPreviewModeControls();
             this.bindStatusBar();
             this.bindKeyboardShortcuts();
+            this.bindLinkClicks();
             this.buildSpecialCharsPanel();
             this.buildTooltips();
             this.syncActiveToolButtons();
@@ -376,8 +653,28 @@
             });
         },
 
+        bindLinkClicks() {
+            const openLink = (e) => {
+                const link = e.target.closest('a[href]');
+                if (!link) return;
+
+                e.preventDefault();
+                const href = normalizeLinkHref(link.getAttribute('href') || link.dataset.href || '');
+                if (!href) return;
+
+                const newWindow = window.open(href, '_blank', 'noopener,noreferrer');
+                if (newWindow) {
+                    newWindow.opener = null;
+                }
+            };
+
+            this.editor.addEventListener('click', openLink);
+            document.getElementById('previewContent').addEventListener('click', openLink);
+        },
+
         bindStatusBar() {
             this.editor.addEventListener('beforeinput', (e) => this.handleActiveFormattingInput(e));
+            this.editor.addEventListener('paste', (e) => this.handlePaste(e));
             this.editor.addEventListener('input', () => {
                 this.updateCharCount();
                 this.updatePreview();
@@ -385,7 +682,7 @@
             document.getElementById('copyBtn').addEventListener('click', () => this.copyToClipboard());
             document.getElementById('clearBtn').addEventListener('click', () => {
                 this.pushUndo();
-                this.editor.value = '';
+                this.setEditorPlainText('');
                 this.updateCharCount();
                 this.updatePreview();
                 this.editor.focus();
@@ -437,7 +734,7 @@
                     }
                 }
 
-                const shortcuts = { 'b': 'bold', 'i': 'italic', 'u': 'underline' };
+                const shortcuts = { 'b': 'bold', 'i': 'italic', 'u': 'underline', 'k': 'link' };
                 const action = shortcuts[e.key.toLowerCase()];
                 // Let browser handle native Ctrl+Z when our undo stack is empty
                 if (e.key.toLowerCase() === 'z') {
@@ -527,11 +824,16 @@
 
             const { start, end, selected } = this.getSelection();
 
+            if (action === 'link') {
+                this.addLink(start, end, selected);
+                return;
+            }
+
             if (action === 'clear') {
                 this.pushUndo();
                 this.clearActiveFormatting();
                 if (!selected) {
-                    this.editor.value = stripToPlain(this.editor.value);
+                    this.setEditorPlainText(stripToPlain(this.getEditorDisplayText()));
                     this.updateCharCount();
                     this.updatePreview();
                     this.showToast('Formatting cleared');
@@ -588,6 +890,31 @@
             this.updatePreview();
         },
 
+        addLink(start, end, selected) {
+            const selectedPlainText = stripToPlain(selected).trim();
+            const defaultHref = looksLikeLink(selectedPlainText) ? selectedPlainText : 'https://';
+            const rawHref = window.prompt('Paste the URL for this link.', defaultHref);
+            if (rawHref === null) return;
+
+            const href = normalizeLinkHref(rawHref);
+            if (!href) {
+                this.showToast('Enter a valid http or https URL');
+                return;
+            }
+
+            this.pushUndo();
+            const link = document.createElement('a');
+            link.href = href;
+            link.dataset.href = href;
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            link.textContent = selected.trim() || href;
+            this.replaceSelectionWithNode(start, end, link);
+            this.updateCharCount();
+            this.updatePreview();
+            this.showToast('Link added');
+        },
+
         toggleActiveFormat(action) {
             if (action === 'bold-italic') {
                 const shouldEnable = !(this.activeFormats.bold && this.activeFormats.italic);
@@ -629,9 +956,8 @@
         },
 
         ensureCurrentLineHasListMarker(action) {
-            const start = this.editor.selectionStart;
-            const end = this.editor.selectionEnd;
-            const value = this.editor.value;
+            const { start, end } = this.getSelectionOffsets();
+            const value = this.getEditorDisplayText();
             const lineStart = getLineStart(value, start);
             const linePrefix = value.substring(lineStart, start);
 
@@ -640,14 +966,13 @@
             const marker = action === 'bullet-list'
                 ? '• '
                 : `${this.getNextNumberForCurrentLine(lineStart)}. `;
-            this.editor.value = value.substring(0, lineStart) + marker + value.substring(lineStart);
-            this.editor.selectionStart = start + marker.length;
-            this.editor.selectionEnd = end + marker.length;
+            this.replaceSelection(lineStart, lineStart, marker);
+            this.setSelectionOffsets(start + marker.length, end + marker.length);
             this.updateCharCount();
         },
 
         getNextNumberForCurrentLine(lineStart) {
-            const before = this.editor.value.substring(0, Math.max(0, lineStart - 1)).split('\n').reverse();
+            const before = this.getEditorDisplayText().substring(0, Math.max(0, lineStart - 1)).split('\n').reverse();
             for (const line of before) {
                 const number = getNumberedMarkerForLine(line);
                 if (number != null) return number + 1;
@@ -730,9 +1055,15 @@
         handleActiveFormattingInput(e) {
             if (e.isComposing) return;
 
-            if ((e.inputType === 'insertLineBreak' || e.inputType === 'insertParagraph') && this.activeFormats.list) {
+            if (e.inputType === 'insertLineBreak' || e.inputType === 'insertParagraph') {
                 e.preventDefault();
-                this.handleActiveListBreak();
+                if (this.activeFormats.list) {
+                    this.handleActiveListBreak();
+                } else {
+                    this.pushUndo();
+                    this.insertAtCursor('\n');
+                    this.updatePreview();
+                }
                 return;
             }
 
@@ -744,19 +1075,39 @@
             this.updatePreview();
         },
 
+        handlePaste(e) {
+            const clipboard = e.clipboardData;
+            if (!clipboard) return;
+
+            const richText = richHtmlToFormattedText(clipboard.getData('text/html'));
+            if (richText) {
+                e.preventDefault();
+                this.pushUndo();
+                this.insertAtCursor(richText);
+                this.updatePreview();
+                return;
+            }
+
+            const plainText = clipboard.getData('text/plain');
+            if (plainText && this.hasActiveTextFormatting()) {
+                e.preventDefault();
+                this.pushUndo();
+                this.insertAtCursor(this.formatActiveText(plainText));
+                this.updatePreview();
+            }
+        },
+
         handleActiveListBreak() {
             this.pushUndo();
-            const start = this.editor.selectionStart;
-            const end = this.editor.selectionEnd;
-            const value = this.editor.value;
+            const { start, end } = this.getSelectionOffsets();
+            const value = this.getEditorDisplayText();
             const lineStart = getLineStart(value, start);
             const currentLinePrefix = value.substring(lineStart, start);
             const emptyMarkerPattern = /^\s*(?:[•◦▪▸‣⁃⦿⊙]|\d+\.)\s*$/;
 
             if (emptyMarkerPattern.test(currentLinePrefix)) {
-                this.editor.value = value.substring(0, lineStart) + value.substring(end);
-                this.editor.selectionStart = lineStart;
-                this.editor.selectionEnd = lineStart;
+                this.replaceSelection(lineStart, end, '');
+                this.setSelectionOffsets(lineStart);
                 this.activeFormats.list = null;
                 this.syncActiveToolButtons();
                 this.updateCharCount();
@@ -773,39 +1124,113 @@
 
         // ---- Selection Helpers ----
 
+        getEditorDisplayText() {
+            return serializeEditableContent(this.editor, false);
+        },
+
+        getEditorExportText() {
+            return serializeEditableContent(this.editor, true);
+        },
+
+        setEditorPlainText(text) {
+            this.editor.textContent = text;
+        },
+
+        getSelectionOffsets() {
+            const selection = window.getSelection();
+            if (!selection || selection.rangeCount === 0) {
+                return { start: 0, end: 0 };
+            }
+
+            const range = selection.getRangeAt(0);
+            if (!this.editor.contains(range.startContainer) || !this.editor.contains(range.endContainer)) {
+                const length = this.getEditorDisplayText().length;
+                return { start: length, end: length };
+            }
+
+            const beforeStart = document.createRange();
+            beforeStart.selectNodeContents(this.editor);
+            beforeStart.setEnd(range.startContainer, range.startOffset);
+
+            const beforeEnd = document.createRange();
+            beforeEnd.selectNodeContents(this.editor);
+            beforeEnd.setEnd(range.endContainer, range.endOffset);
+
+            const start = beforeStart.toString().length;
+            const end = beforeEnd.toString().length;
+            return start <= end ? { start, end } : { start: end, end: start };
+        },
+
         getSelection() {
+            const { start, end } = this.getSelectionOffsets();
+            const text = this.getEditorDisplayText();
             return {
-                start: this.editor.selectionStart,
-                end: this.editor.selectionEnd,
-                selected: this.editor.value.substring(this.editor.selectionStart, this.editor.selectionEnd),
+                start,
+                end,
+                selected: text.substring(start, end),
             };
         },
 
-        replaceSelection(start, end, newText) {
-            const value = this.editor.value;
-            this.editor.value = value.substring(0, start) + newText + value.substring(end);
-            this.editor.selectionStart = start;
-            this.editor.selectionEnd = start + newText.length;
+        getTextPosition(offset) {
+            const walker = document.createTreeWalker(this.editor, NodeFilter.SHOW_TEXT);
+            let currentOffset = 0;
+            let node = walker.nextNode();
+
+            while (node) {
+                const nextOffset = currentOffset + node.nodeValue.length;
+                if (offset <= nextOffset) {
+                    return { node, offset: offset - currentOffset };
+                }
+                currentOffset = nextOffset;
+                node = walker.nextNode();
+            }
+
+            const fallbackNode = document.createTextNode('');
+            this.editor.appendChild(fallbackNode);
+            return { node: fallbackNode, offset: 0 };
+        },
+
+        setSelectionOffsets(start, end = start) {
             this.editor.focus();
+            const startPos = this.getTextPosition(start);
+            const endPos = this.getTextPosition(end);
+            const range = document.createRange();
+            range.setStart(startPos.node, startPos.offset);
+            range.setEnd(endPos.node, endPos.offset);
+
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+        },
+
+        replaceSelection(start, end, newText) {
+            this.replaceSelectionWithNode(start, end, document.createTextNode(newText));
             this.updateCharCount();
         },
 
-        insertAtCursor(text) {
-            const start = this.editor.selectionStart;
-            const end = this.editor.selectionEnd;
-            const value = this.editor.value;
-            this.editor.value = value.substring(0, start) + text + value.substring(end);
-            const newPos = start + text.length;
-            this.editor.selectionStart = newPos;
-            this.editor.selectionEnd = newPos;
+        replaceSelectionWithNode(start, end, node) {
+            this.setSelectionOffsets(start, end);
+            const selection = window.getSelection();
+            const range = selection.getRangeAt(0);
+            range.deleteContents();
+            range.insertNode(node);
+            range.setStartAfter(node);
+            range.collapse(true);
+            selection.removeAllRanges();
+            selection.addRange(range);
+            this.editor.normalize();
             this.editor.focus();
-            this.updateCharCount();
+        },
+
+        insertAtCursor(text) {
+            const { start, end } = this.getSelectionOffsets();
+            this.replaceSelection(start, end, text);
         },
 
         // ---- Character Count ----
 
         updateCharCount() {
-            const text = this.editor.value;
+            const text = this.getEditorExportText();
             const len = [...text].length;
             const max = PLATFORMS[this.currentPlatform].maxChars;
             const counter = document.querySelector('.char-counter');
@@ -830,7 +1255,7 @@
         // ---- Live Preview ----
 
         updatePreview() {
-            const text = this.editor.value;
+            const text = this.getEditorExportText();
             const content = document.getElementById('previewContent');
             const warningsEl = document.getElementById('previewWarnings');
 
@@ -840,13 +1265,8 @@
                 return;
             }
 
-            // Render text as escaped HTML preserving whitespace
-            const escaped = text
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;');
             content.textContent = '';
-            content.textContent = text;
+            content.appendChild(this.buildPreviewFragment());
 
             // Platform warnings
             const warnings = platformWarnings(text, this.currentPlatform);
@@ -860,10 +1280,51 @@
             }
         },
 
+        buildPreviewFragment() {
+            const fragment = document.createDocumentFragment();
+
+            const appendNode = (sourceNode, targetParent) => {
+                if (sourceNode.nodeType === Node.TEXT_NODE) {
+                    targetParent.appendChild(document.createTextNode(sourceNode.nodeValue || ''));
+                    return;
+                }
+
+                if (sourceNode.nodeType !== Node.ELEMENT_NODE) return;
+
+                const sourceElement = sourceNode;
+                const tag = sourceElement.tagName.toLowerCase();
+                if (tag === 'br') {
+                    targetParent.appendChild(document.createTextNode('\n'));
+                    return;
+                }
+
+                if (tag === 'a') {
+                    const href = normalizeLinkHref(sourceElement.getAttribute('href') || sourceElement.dataset.href || '');
+                    const link = document.createElement('a');
+                    link.href = href || '#';
+                    link.target = '_blank';
+                    link.rel = 'noopener noreferrer';
+                    link.textContent = serializeEditableNode(sourceElement, false);
+                    targetParent.appendChild(link);
+                    return;
+                }
+
+                for (const child of sourceElement.childNodes) {
+                    appendNode(child, targetParent);
+                }
+            };
+
+            for (const child of this.editor.childNodes) {
+                appendNode(child, fragment);
+            }
+
+            return fragment;
+        },
+
         // ---- Clipboard ----
 
         async copyToClipboard() {
-            const raw = this.editor.value;
+            const raw = this.getEditorExportText();
             if (!raw) {
                 this.showToast('Nothing to copy');
                 return;
@@ -874,8 +1335,15 @@
                 await navigator.clipboard.writeText(text);
                 this.showToast('Copied to clipboard ✓');
             } catch {
-                this.editor.select();
+                const fallback = document.createElement('textarea');
+                fallback.value = text;
+                fallback.style.position = 'fixed';
+                fallback.style.left = '-9999px';
+                fallback.setAttribute('readonly', '');
+                document.body.appendChild(fallback);
+                fallback.select();
                 document.execCommand('copy');
+                fallback.remove();
                 this.showToast('Copied to clipboard ✓');
             }
         },
@@ -918,10 +1386,11 @@
         // ---- Undo Stack ----
 
         pushUndo() {
+            const { start, end } = this.getSelectionOffsets();
             this.undoStack.push({
-                value: this.editor.value,
-                selStart: this.editor.selectionStart,
-                selEnd: this.editor.selectionEnd,
+                html: this.editor.innerHTML,
+                selStart: start,
+                selEnd: end,
             });
             if (this.undoStack.length > this.maxUndo) this.undoStack.shift();
             this.updateUndoBtn();
@@ -933,9 +1402,8 @@
                 return;
             }
             const state = this.undoStack.pop();
-            this.editor.value = state.value;
-            this.editor.selectionStart = state.selStart;
-            this.editor.selectionEnd = state.selEnd;
+            this.editor.innerHTML = state.html;
+            this.setSelectionOffsets(state.selStart, state.selEnd);
             this.editor.focus();
             this.updateCharCount();
             this.updatePreview();

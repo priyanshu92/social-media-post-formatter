@@ -38,6 +38,12 @@
                     <div class="toolbar-group">
                         <button class="tool-btn" data-action="underline" data-label="Underline" data-shortcut="U"><span class="underline-label">U</span></button>
                         <button class="tool-btn" data-action="strikethrough" data-label="Strikethrough" data-shortcut="⇧S"><span class="strike-label">S</span></button>
+                        <button class="tool-btn" data-action="link" data-label="Add Link" data-shortcut="K" aria-label="Add link">
+                            <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                <path d="M10 13a5 5 0 0 0 7.07 0l2.12-2.12a5 5 0 0 0-7.07-7.07l-1.22 1.22" />
+                                <path d="M14 11a5 5 0 0 0-7.07 0L4.81 13.12a5 5 0 0 0 7.07 7.07l1.22-1.22" />
+                            </svg>
+                        </button>
                     </div>
                     <div class="toolbar-sep"></div>
                     <div class="toolbar-group">
@@ -64,13 +70,16 @@
                     <div class="chars-section" id="charsGrid"></div>
                 </div>
 
-                <textarea
+                <div
                     id="editor"
                     class="editor-textarea"
-                    placeholder="Type or paste your content here…"
+                    contenteditable="true"
+                    role="textbox"
+                    aria-multiline="true"
+                    data-placeholder="Type or paste your content here…"
                     spellcheck="true"
                     aria-label="Post content editor"
-                ></textarea>
+                ></div>
 
                 <div class="status-bar">
                     <div class="char-counter">
@@ -134,6 +143,7 @@
                         <div><dt>Ctrl + B</dt><dd>Bold</dd></div>
                         <div><dt>Ctrl + I</dt><dd>Italic</dd></div>
                         <div><dt>Ctrl + U</dt><dd>Underline</dd></div>
+                        <div><dt>Ctrl + K</dt><dd>Add link</dd></div>
                         <div><dt>Ctrl + Shift + S</dt><dd>Strikethrough</dd></div>
                         <div><dt>Ctrl + Shift + M</dt><dd>Monospace</dd></div>
                         <div><dt>Ctrl + Shift + P</dt><dd>Superscript</dd></div>
