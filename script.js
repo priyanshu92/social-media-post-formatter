@@ -134,6 +134,13 @@
         },
     };
 
+    const STORAGE_KEYS = {
+        currentPost: 'postcraft.currentPost',
+        drafts: 'postcraft.drafts',
+    };
+    const DEFAULT_DRAFT_NAME = 'Untitled draft';
+    const DRAFT_SNIPPET_LENGTH = 120;
+
     const INLINE_FORMAT_ACTIONS = new Set([
         'bold',
         'italic',
@@ -591,6 +598,83 @@
     }
 
     // =========================================================
+    //  Browser Storage Helpers
+    // =========================================================
+
+    function createDraftId() {
+        if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+            return window.crypto.randomUUID();
+        }
+        return `draft-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    }
+
+    function formatDraftTimestamp(timestamp) {
+        const date = new Date(timestamp);
+        if (Number.isNaN(date.getTime())) return 'Unknown time';
+        return new Intl.DateTimeFormat(undefined, {
+            dateStyle: 'medium',
+            timeStyle: 'short',
+        }).format(date);
+    }
+
+    function sanitizeEditorHtml(html) {
+        const template = document.createElement('template');
+        template.innerHTML = html || '';
+
+        const fragment = document.createDocumentFragment();
+        const appendCleanNode = (node, parent) => {
+            if (node.nodeType === Node.TEXT_NODE) {
+                parent.appendChild(document.createTextNode(node.nodeValue || ''));
+                return;
+            }
+
+            if (node.nodeType !== Node.ELEMENT_NODE) return;
+
+            const element = node;
+            const tag = element.tagName.toLowerCase();
+            if (tag === 'br') {
+                parent.appendChild(document.createElement('br'));
+                return;
+            }
+
+            if (tag === 'a') {
+                const href = normalizeLinkHref(element.getAttribute('href') || element.dataset.href || '');
+                if (!href) {
+                    parent.appendChild(document.createTextNode(element.textContent || ''));
+                    return;
+                }
+
+                const link = document.createElement('a');
+                link.href = href;
+                link.dataset.href = href;
+                link.target = '_blank';
+                link.rel = 'noopener noreferrer';
+                for (const child of element.childNodes) appendCleanNode(child, link);
+                parent.appendChild(link);
+                return;
+            }
+
+            for (const child of element.childNodes) appendCleanNode(child, parent);
+        };
+
+        for (const child of template.content.childNodes) appendCleanNode(child, fragment);
+
+        const wrapper = document.createElement('div');
+        wrapper.appendChild(fragment);
+        return wrapper.innerHTML;
+    }
+
+    function draftPreviewText(draft) {
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = sanitizeEditorHtml(draft.html);
+        const text = serializeEditableContent(wrapper, true).replace(/\s+/g, ' ').trim();
+        if (!text) return 'Empty draft';
+        return text.length > DRAFT_SNIPPET_LENGTH
+            ? `${text.slice(0, DRAFT_SNIPPET_LENGTH - 1)}…`
+            : text;
+    }
+
+    // =========================================================
     //  App Controller
     // =========================================================
 
@@ -610,21 +694,27 @@
         undoStack: [],
         redoStack: [],
         maxUndo: 50,
+        drafts: [],
+        storageErrorShown: false,
 
         init() {
             this.editor = document.getElementById('editor');
+            this.loadCurrentPost();
+            this.loadDrafts();
             this.bindToolbar();
             this.bindPlatformTabs();
             this.bindPreviewModeControls();
             this.bindStatusBar();
+            this.bindDraftControls();
             this.bindKeyboardShortcuts();
             this.bindLinkClicks();
             this.buildSpecialCharsPanel();
             this.buildTooltips();
             this.syncActiveToolButtons();
-            this.updatePlatform('linkedin');
+            this.updatePlatform(this.currentPlatform);
             this.updateCharCount();
             this.updatePreview();
+            this.renderDrafts();
         },
 
         // ---- Event Binding ----
@@ -692,6 +782,30 @@
                 this.updatePreview();
                 this.editor.focus();
                 this.showToast('Cleared');
+            });
+        },
+
+        bindDraftControls() {
+            const draftName = document.getElementById('draftName');
+            document.getElementById('saveDraftBtn').addEventListener('click', () => this.saveDraft());
+            draftName.addEventListener('keydown', (e) => {
+                if (e.key !== 'Enter') return;
+                e.preventDefault();
+                this.saveDraft();
+            });
+
+            document.getElementById('draftsList').addEventListener('click', (e) => {
+                const btn = e.target.closest('[data-draft-action]');
+                if (!btn) return;
+
+                const { draftId, draftAction } = btn.dataset;
+                if (draftAction === 'open') {
+                    this.openDraft(draftId);
+                    return;
+                }
+                if (draftAction === 'delete') {
+                    this.deleteDraft(draftId);
+                }
             });
         },
 
@@ -766,6 +880,199 @@
                     this.toggleShortcutHelp();
                 }
             });
+        },
+
+        // ---- Draft Storage ----
+
+        readStorage(key, fallback) {
+            try {
+                const raw = localStorage.getItem(key);
+                return raw ? JSON.parse(raw) : fallback;
+            } catch (error) {
+                console.warn(`Unable to read ${key} from localStorage`, error);
+                return fallback;
+            }
+        },
+
+        writeStorage(key, value, notifyOnError = false) {
+            try {
+                localStorage.setItem(key, JSON.stringify(value));
+                return true;
+            } catch (error) {
+                console.warn(`Unable to write ${key} to localStorage`, error);
+                if (notifyOnError && !this.storageErrorShown) {
+                    this.storageErrorShown = true;
+                    this.showToast('Could not save in this browser');
+                }
+                return false;
+            }
+        },
+
+        loadCurrentPost() {
+            const saved = this.readStorage(STORAGE_KEYS.currentPost, null);
+            if (!saved || typeof saved !== 'object') return;
+
+            if (typeof saved.platform === 'string' && PLATFORMS[saved.platform]) {
+                this.currentPlatform = saved.platform;
+            }
+            if (typeof saved.html === 'string') {
+                this.editor.innerHTML = sanitizeEditorHtml(saved.html);
+            } else if (typeof saved.text === 'string') {
+                this.setEditorPlainText(saved.text);
+            }
+        },
+
+        saveCurrentPost() {
+            if (!this.editor) return;
+            this.writeStorage(STORAGE_KEYS.currentPost, {
+                html: this.editor.innerHTML,
+                platform: this.currentPlatform,
+                updatedAt: new Date().toISOString(),
+            }, true);
+        },
+
+        loadDrafts() {
+            const storedDrafts = this.readStorage(STORAGE_KEYS.drafts, []);
+            this.drafts = Array.isArray(storedDrafts)
+                ? storedDrafts.filter(draft => {
+                    return draft
+                        && typeof draft.id === 'string'
+                        && typeof draft.name === 'string'
+                        && typeof draft.createdAt === 'string'
+                        && typeof draft.html === 'string';
+                })
+                : [];
+        },
+
+        persistDrafts() {
+            return this.writeStorage(STORAGE_KEYS.drafts, this.drafts, true);
+        },
+
+        saveDraft() {
+            const text = this.getEditorExportText().trim();
+            if (!text) {
+                this.showToast('Nothing to save');
+                return;
+            }
+
+            const nameInput = document.getElementById('draftName');
+            const createdAt = new Date().toISOString();
+            const draft = {
+                id: createDraftId(),
+                name: nameInput.value.trim() || DEFAULT_DRAFT_NAME,
+                createdAt,
+                html: this.editor.innerHTML,
+                platform: this.currentPlatform,
+            };
+
+            this.drafts = [draft, ...this.drafts];
+            if (!this.persistDrafts()) return;
+
+            nameInput.value = '';
+            this.renderDrafts();
+            this.showToast('Draft saved');
+        },
+
+        openDraft(draftId) {
+            const draft = this.drafts.find(item => item.id === draftId);
+            if (!draft) {
+                this.showToast('Draft not found');
+                return;
+            }
+
+            this.pushUndo();
+            this.clearActiveFormatting();
+            this.editor.innerHTML = sanitizeEditorHtml(draft.html);
+            if (PLATFORMS[draft.platform]) {
+                this.updatePlatform(draft.platform);
+            } else {
+                this.updateCharCount();
+                this.updatePreview();
+            }
+            const end = this.getEditorDisplayText().length;
+            this.setSelectionOffsets(end);
+            this.showToast('Draft opened');
+        },
+
+        deleteDraft(draftId) {
+            const draft = this.drafts.find(item => item.id === draftId);
+            if (!draft) {
+                this.showToast('Draft not found');
+                return;
+            }
+            if (!window.confirm(`Delete "${draft.name}"?`)) return;
+
+            this.drafts = this.drafts.filter(item => item.id !== draftId);
+            if (!this.persistDrafts()) return;
+
+            this.renderDrafts();
+            this.showToast('Draft deleted');
+        },
+
+        renderDrafts() {
+            const list = document.getElementById('draftsList');
+            list.textContent = '';
+
+            if (this.drafts.length === 0) {
+                const empty = document.createElement('p');
+                empty.className = 'draft-empty';
+                empty.textContent = 'No drafts yet. Name your post and save it here.';
+                list.appendChild(empty);
+                return;
+            }
+
+            for (const draft of this.drafts) {
+                const card = document.createElement('article');
+                card.className = 'draft-card';
+
+                const body = document.createElement('div');
+                body.className = 'draft-body';
+
+                const titleRow = document.createElement('div');
+                titleRow.className = 'draft-title-row';
+
+                const title = document.createElement('h3');
+                title.className = 'draft-title';
+                title.textContent = draft.name;
+
+                const platform = document.createElement('span');
+                platform.className = 'draft-platform';
+                platform.textContent = PLATFORMS[draft.platform]?.name || 'Post';
+
+                titleRow.append(title, platform);
+
+                const time = document.createElement('time');
+                time.className = 'draft-time';
+                time.dateTime = draft.createdAt;
+                time.textContent = formatDraftTimestamp(draft.createdAt);
+
+                const snippet = document.createElement('p');
+                snippet.className = 'draft-snippet';
+                snippet.textContent = draftPreviewText(draft);
+
+                body.append(titleRow, time, snippet);
+
+                const actions = document.createElement('div');
+                actions.className = 'draft-actions';
+
+                const openBtn = document.createElement('button');
+                openBtn.className = 'draft-action-btn';
+                openBtn.type = 'button';
+                openBtn.dataset.draftAction = 'open';
+                openBtn.dataset.draftId = draft.id;
+                openBtn.textContent = 'Open';
+
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = 'draft-action-btn draft-action-btn-danger';
+                deleteBtn.type = 'button';
+                deleteBtn.dataset.draftAction = 'delete';
+                deleteBtn.dataset.draftId = draft.id;
+                deleteBtn.textContent = 'Delete';
+
+                actions.append(openBtn, deleteBtn);
+                card.append(body, actions);
+                list.appendChild(card);
+            }
         },
 
         // ---- Platform Switching ----
@@ -1270,6 +1577,7 @@
             const text = this.getEditorExportText();
             const content = document.getElementById('previewContent');
             const warningsEl = document.getElementById('previewWarnings');
+            this.saveCurrentPost();
 
             if (!text) {
                 content.innerHTML = '<p class="preview-placeholder">Your formatted post will appear here…</p>';

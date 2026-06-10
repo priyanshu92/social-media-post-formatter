@@ -106,6 +106,21 @@
                         </button>
                     </div>
                 </div>
+
+                <section class="drafts-panel" aria-labelledby="draftsHeading">
+                    <div class="drafts-header">
+                        <div>
+                            <h2 id="draftsHeading">Draft posts</h2>
+                            <p>Saved in this browser with a timestamp.</p>
+                        </div>
+                    </div>
+                    <div class="draft-save-row">
+                        <label class="sr-only" for="draftName">Draft name</label>
+                        <input id="draftName" class="draft-name-input" type="text" maxlength="80" placeholder="Name this draft">
+                        <button class="btn-secondary" id="saveDraftBtn" type="button">Save Draft</button>
+                    </div>
+                    <div class="drafts-list" id="draftsList" aria-live="polite"></div>
+                </section>
             </main>
 
             <aside class="preview-panel">

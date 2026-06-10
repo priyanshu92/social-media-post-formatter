@@ -15,6 +15,7 @@ Format your posts for **LinkedIn**, **Instagram**, and **Twitter/X** with bold, 
   - *Instagram* — Blank lines preserved with invisible spacers on copy, hashtag count warnings (max 30)
   - *LinkedIn* — Auto-separates hashtag blocks on copy, warns about long single paragraphs
 - **Undo** — Formatting undo stack with `Ctrl+Z` / `⌘Z` (falls back to native undo when stack is empty)
+- **Drafts** — Autosaves the current post and lets you save, reopen, and delete named timestamped drafts in browser localStorage
 - **Keyboard Shortcuts** — OS-aware tooltips (`⌘` on Mac, `Ctrl` on Windows)
 - **Copy to Clipboard** — One-click copy with platform-specific post-processing
 - **Fully Client-Side** — No server, no tracking, everything runs in your browser
